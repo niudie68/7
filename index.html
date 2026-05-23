@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>総合資産ボード（株価・為替・地金）</title>
+  <style>
+    body {
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      background-color: #f4f5f7;
+      margin: 0;
+      padding: 20px;
+    }
+
+    #stock-board {
+      display: block !important; 
+      width: 100%;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    .stock-card {
+      display: block !important;
+      background: #ffffff;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      padding: 15px;
+      margin-bottom: 15px;
+      min-height: 110px;
+      box-sizing: border-box !important;
+    }
+
+    /* 地金カードを目立たせるためのほんのりとしたアクセント（不要なら消してOKです） */
+    .card-gold { border-left: 5px solid #d4af37; }
+    .card-silver { border-left: 5px solid #aaa9ad; }
+
+    .stock-code {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 5px;
+    }
+
+    .stock-name {
+      font-size: 18px;
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 8px;
+    }
+
+    .stock-price-box {
+      font-size: 24px;
+      font-weight: bold;
+      color: #222;
+      margin-bottom: 3px;
+    }
+
+    .stock-diff-box {
+      font-size: 14px;
+      font-weight: bold;
+      margin-bottom: 8px;
+    }
+    
+    .diff-plus { color: #d93025; }
+    .diff-minus { color: #1a73e8; }
+    .diff-zero { color: #666666; }
+
+    .currency {
+      font-size: 14px;
+      color: #333;
+      margin-left: 4px;
+    }
+
+    .update-time {
+      font-size: 11px;
+      color: #999;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="stock-board"></div>
+
+  <script>
+    // ==========================================
+    // 【重要】ステップ1で新しく作ったGASのURLを貼り付けてください
+    // ==========================================
+    const gasWebAppUrl = "https://script.google.com/macros/s/xxxx/exec";
+
+    // リストの一番下に 田中貴金属の「金」と「銀」を追加しました
+    const items = [
+        { code: "2330", name: "フォーサイド", market: "東証スタンダード", unit: "円", class: "" },
+        { code: "2370", name: "メディネット", market: "東証グロース", unit: "円", class: "" },
+        { code: "6656", name: "インスペック", market: "東証スタンダード", unit: "円", class: "" },
+        { code: "8086", name: "ニプロ", market: "東証プライム", unit: "円", class: "" },
+        { code: "USD",  name: "米ドル / 円", market: "為替（1ドル）", unit: "円", class: "" },
+        { code: "CNY100", name: "100円の人民元", market: "為替（100円あたり）", unit: "元", class: "" },
+        { code: "GOLD", name: "純金 店頭小売価格", market: "田中貴金属公表（1gあたり）", unit: "円", class: "card-gold" },
+        { code: "SILVER", name: "純銀 店頭小売価格", market: "田中貴金属公表（1gあたり）", unit: "円", class: "card-silver" }
+    ];
+
+    function initBoard() {
+        const board = document.getElementById("stock-board");
+        board.innerHTML = "";
+        
+        items.forEach(item => {
+            const card = document.createElement("div");
+            // 地金専用の枠線クラス（class）を適用
+            card.className = "stock-card " + item.class;
+            
+            let marketText = (item.code === "USD" || item.code === "CNY100" || item.code === "GOLD" || item.code === "SILVER") 
+                ? item.market 
+                : item.market + ": " + item.code;
+
+            card.innerHTML = `
+                <div class="stock-code">${marketText}</div>
+                <div class="stock-name">${item.name}</div>
+                <div class="stock-price-box">
+                    <span id="price-${item.code}">-</span><span class="currency">${item.unit}</span>
+                </div>
+                <div class="stock-diff-box" id="diff-${item.code}">前日比: -</div>
+                <div class="update-time" id="time-${item.code}">データを読み込み中...</div>
+            `;
+            board.appendChild(card);
+        });
+    }
+
+    async function fetchSingleItem(item) {
+        try {
+            const urlObj = new URL(gasWebAppUrl);
+            urlObj.searchParams.set("code", item.code);
+
+            const response = await fetch(urlObj.toString());
+            const data = await response.json();
+            
+            const priceEl = document.getElementById("price-" + item.code);
+            const diffEl = document.getElementById("diff-" + item.code);
+            const timeEl = document.getElementById("time-" + item.code);
+
+            if (!priceEl || !diffEl || !timeEl) return;
+
+            if (data.error) {
+                timeEl.innerText = "エラー: " + data.error;
+                return;
+            }
+
+            // 表示桁数の調整
+            let displayPrice = data.price;
+            let displayDiff = data.diff;
+            
+            if (item.code === "USD") {
+                displayPrice = Number(data.price).toFixed(2);
+                displayDiff = Number(data.diff).toFixed(2);
+            } else if (item.code === "CNY100") {
+                displayPrice = Number(data.price).toFixed(4);
+                displayDiff = Number(data.diff).toFixed(4);
+            } else if (item.code === "SILVER") {
+                displayPrice = Number(data.price).toFixed(2); // 銀は小数点2桁で見ることが多いです
+                displayDiff = Number(data.diff).toFixed(2);
+            } else {
+                displayPrice = Number(data.price); // 株・金は整数
+                displayDiff = Number(data.diff);
+            }
+
+            priceEl.innerText = displayPrice;
+
+            // 前日比の色分け
+            const numDiff = Number(data.diff);
+            if (numDiff > 0) {
+                diffEl.innerText = "前日+" + displayDiff;
+                diffEl.className = "stock-diff-box diff-plus";
+            } else if (numDiff < 0) {
+                // 田中貴金属のデータに最初から「-」が付いている場合と付いていない場合があるため、重複を防ぐ処理
+                let diffText = String(displayDiff);
+                if(!diffText.startsWith("-")) {
+                    diffText = "-" + diffText;
+                }
+                diffEl.innerText = "前日" + diffText;
+                diffEl.className = "stock-diff-box diff-minus";
+            } else {
+                diffEl.innerText = "前日±0";
+                diffEl.className = "stock-diff-box diff-zero";
+            }
+
+            const now = new Date();
+            timeEl.innerText = "最終更新: " + now.toLocaleTimeString();
+
+        } catch (error) {
+            console.error(item.name + "の取得に失敗:", error);
+            const timeEl = document.getElementById("time-" + item.code);
+            if (timeEl) {
+                timeEl.innerText = "データ取得に失敗しました";
+            }
+        }
+    }
+
+    function getAllStockPrices() {
+        items.forEach(item => {
+            fetchSingleItem(item);
+        });
+    }
+
+    initBoard();
+    getAllStockPrices();
+  </script>
+</body>
+</html>
